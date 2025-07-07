@@ -42,3 +42,33 @@ If you use the **data** or **code** from this repository in your work, please ci
 
 > This repository accompanies a manuscript currently under peer review. Citation details will be updated upon publication.
 
+## 📦 Required R Version and Packages
+
+### R Version:
+- **R version**: 4.0.2 (2020-06-22)
+
+### Required R Packages:
+The following packages are required to run the analysis:
+
+- **dplyr** (1.1.3)
+- **ggplot2** (3.4.4)
+- **reshape2** (1.4.4)
+- **tidyr** (1.3.0)
+- **igraph** (1.5.1)
+- **Matrix** (1.6-1.1)
+- **DESeq2** (1.42.0)
+- **Mfuzz** (2.48.0)
+- **PROGENy** (1.10.0)
+- **clusterProfiler** (4.9.0.002)
+- **GenomicRanges** (1.52.1)
+- **SummarizedExperiment** (1.30.2)
+- **e1071** (1.7-4)
+- **dplyr** (1.1.3)
+
+You can install the necessary packages with the following commands in R:
+
+```r
+install.packages(c("dplyr", "ggplot2", "reshape2", "tidyr", "igraph", "Matrix", "e1071"))
+BiocManager::install(c("DESeq2", "Mfuzz", "clusterProfiler", "PROGENy", "GenomicRanges", "SummarizedExperiment"))
+
+
