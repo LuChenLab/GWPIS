@@ -27,8 +27,7 @@ Contains the data files used in the analysis.
 Contains processed analysis results and intermediate data objects.
 
 - **01_ddsres.Rds**: DESeq2 object created using the raw RNA-seq counts.
-- **02_cl.Rds**: Results of gene clustering using Mfuzz.
-- **02_df.Rds**: Data frame containing additional information from Mfuzz clustering.
+- **02_cl.Rds/02_df.Rds**: Results of gene clustering using Mfuzz.
 - **03_Progeny.Rds**: PROGENy pathway enrichment results.
 
 ---
