@@ -1,0 +1,185 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#1. loading package and data
+##1.1. 
+```{r}
+library(progeny)
+library(DESeq2)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(ggplot2)
+library(RColorBrewer)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(data.table)
+library(igraph)
+library(fields)
+library(reshape2)
+```
+##1.2. 
+```{r}
+dds_res <- readRDS("/mnt/raid61/Personal_data/yangqingxin/project/Covid19_wei_thesis_wang_NSP1/script/00_GitHub/analysis/01_ddsres.Rds")
+```
+
+#2. 
+##2.1.
+```{r}
+counts <- counts(dds_res,normalized=T)
+GeneInfo <- data.table(
+  ENSEMBL = rownames(counts),
+  SYMBOL  = rownames(counts)
+)
+GeneInfo$SYMBOL <- mapIds(org.Hs.eg.db,keys=GeneInfo$ENSEMBL,column="SYMBOL",keytype="ENSEMBL",multiVals="first")
+GeneInfo <- subset(GeneInfo,!is.na(GeneInfo$SYMBOL))
+counts <- counts[GeneInfo$ENSEMBL,]
+rownames(counts) <- GeneInfo$SYMBOL
+```
+##2.2. 
+```{r}
+# pathways <- progeny(counts, scale=TRUE,organism="Human",top = 1000, perm = 1)
+# saveRDS(pathways,"/mnt/raid61/Personal_data/yangqingxin/project/Covid19_wei_thesis_wang_NSP1/script/00_GitHub/analysis/03_Progeny.Rds")
+pathways <- readRDS("/mnt/raid61/Personal_data/yangqingxin/project/Covid19_wei_thesis_wang_NSP1/script/00_GitHub/analysis/03_Progeny.Rds")
+```
+##2.3. 
+```{r,fig.width=5.5,fig.height=5}
+pathways_scale <- pathways%>%scale()%>%t()
+ComplexHeatmap::Heatmap(mat = pathways_scale,
+                   col  = colorRampPalette(rev(brewer.pal(n = 11, name ="RdBu")))(100),
+                   border = T,
+                   column_split = c(1,1,1,2,2,2,3,3,3,4,4,4),cluster_column_slices = F,
+                   row_split = 4,
+                   cluster_column = T,clustering_method_columns = "complete",
+                   column_title = c("","","",""),row_title = c("","","","")
+                   )
+```
+
+#3. enrich pathway
+##3.1.
+```{r}
+Data <- t(pathways) 
+sample_names <- colnames(Data)
+#
+keep <- grepl("WT_72|WT_6|WT_24|WT_48", sample_names)
+Data_filtered <- Data[, keep]
+sample_names_filtered <- sample_names[keep]
+#
+group <- ifelse(grepl("WT_24|WT_48", sample_names_filtered), "groupA", "control")
+group <- factor(group, levels = c("control", "groupA"))
+#
+result <- apply(Data_filtered, 1, function(x) {
+  broom::tidy(lm(x ~ group)) %>%
+    dplyr::filter(term == "groupgroupA") %>%
+    dplyr::select(-term)
+})
+#
+res_lm <- bind_rows(result) %>%
+  mutate(pathway = names(result)) %>%
+  mutate(FDR = p.adjust(p.value, method = "fdr")) %>%
+  arrange(p.value)
+
+setorder(res_lm, -statistic)
+res_lm$pathway <- factor(res_lm$pathway, levels = res_lm$pathway)
+```
+##3.2. 
+```{r,fig.width=5,fig.height=4}
+Data <- res_lm 
+setorder(Data,statistic)
+Data$pathway <- factor(Data$pathway,levels = Data$pathway)
+colors <- rev(RColorBrewer::brewer.pal(n = 11, name = "RdBu")[c(2, 10)])
+#
+ggplot(Data, aes(x = pathway, y = statistic, fill = -log10(FDR))) +
+  geom_bar(stat = "identity", width = 0.8) +
+  coord_flip() +
+  scale_fill_distiller(palette = "Reds",direction = 1) +
+  geom_hline(yintercept = 0, color = "black", size = 0.5,linetype=2) +
+  theme_bw() +
+  labs(x = NULL, y = "t-statistic (abs)", fill = "-log10(p.adjust)") +
+  theme(
+    axis.title.y = element_text(face = "bold", size = 12),
+    axis.text.y = element_text(size = 10, face = "bold"),
+    axis.text.x = element_text(size = 10, face = "bold"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+```
+
+#4. 
+```{r,fig.width=10,fig.height=8}
+#
+cor_mat <- cor(pathways, method = "pearson")
+cor_mat[abs(cor_mat) < 0.3] <- 0
+diag(cor_mat) <- 0
+cor_mat[lower.tri(cor_mat)] <- 0
+
+#
+edges <- melt(cor_mat)
+edges <- edges[edges$value != 0, ]
+colnames(edges) <- c("from", "to", "weight")
+
+#
+g <- graph_from_data_frame(edges, directed = FALSE)
+E(g)$weight <- abs(edges$weight)
+
+#
+root_idx <- which(V(g)$name == "NFkB")
+bfs <- graph.bfs(g, root = root_idx, neimode = "all", dist = TRUE)
+depths <- bfs$dist
+max_depth <- max(depths, na.rm = TRUE)
+
+#
+layout <- layout_as_tree(g, root = root_idx, circular = FALSE)
+
+#
+##
+lvl1 <- which(depths == 1)
+if (length(lvl1) > 0) {
+  layout[lvl1, 1] <- seq(-1.3,1.3, length.out = length(lvl1))
+}
+##
+lvlN <- which(depths == max_depth)
+if (length(lvlN) > 0) {
+  layout[lvlN, 1] <- seq(-1.8, 1.8, length.out = length(lvlN))
+}
+
+#
+w_orig <- edges$weight
+col_fun <- colorRampPalette(c("steelblue", "white", "firebrick"))
+ncol <- 100
+cuts <- cut(w_orig,
+            breaks = seq(min(w_orig), max(w_orig), length.out = ncol),
+            include.lowest = TRUE)
+edge_cols <- col_fun(ncol)[as.numeric(cuts)]
+
+#
+plot(g,
+     layout             = layout,
+     rescale            = FALSE,
+     xlim               = range(layout[,1]) * 1.1,
+     ylim               = range(layout[,2]) * 1.1,
+     edge.width         = 2,
+     edge.color         = edge_cols,
+     vertex.label.color = "black",
+     vertex.size        = 45,
+     vertex.color       = "white")
+
+#
+image.plot(legend.only   = TRUE,
+           zlim          = range(w_orig),
+           col           = col_fun(ncol),
+           legend.shrink = 0.5,
+           legend.width  = 1.5,
+           legend.args   = list(text = "correlation",
+                                side = 4,
+                                line = 2.5,
+                                cex  = 0.8))
+```
+
+

@@ -1,0 +1,284 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#1. loading package
+```{r}
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(dplyr)
+library(progeny)
+library(tidyr)
+library(tibble)
+library(igraph)
+```
+
+#2. GWPIS calculation 
+##2.1. 
+```{r}
+compute_ppi_pathway_scores_geom <- function(ppi_df, pathway_gene_list, pathway_weight_list = NULL, eps = 1e-6) {
+  if (any(ppi_df$V3 < 0) || any(ppi_df$V3 > 1)) {
+    minv <- min(ppi_df$V3, na.rm = TRUE)
+    maxv <- max(ppi_df$V3, na.rm = TRUE)
+    if (maxv > minv) {
+      ppi_df$V3 <- (ppi_df$V3 - minv) / (maxv - minv)
+    } else {
+      ppi_df$V3 <- 0.5
+    }
+  }
+
+  if (is.null(pathway_weight_list)) {
+    stop("Error: pathway_weight_list must be provided for geometric‐mean scoring.")
+  }
+
+  nsp_list <- unique(ppi_df$V1)
+  pathways <- names(pathway_gene_list)
+
+  result_mat <- matrix(NA, nrow = length(nsp_list), ncol = length(pathways),
+                       dimnames = list(nsp_list, pathways))
+
+  normalized_weights <- list()
+  for (pathway in pathways) {
+    w_raw <- pathway_weight_list[[pathway]]
+    if (is.null(w_raw)) {
+      stop("Error: The pathway_weight_list is missing some entries.", pathway)
+    }
+    w_abs <- abs(w_raw)
+    if (all(is.na(w_abs)) || max(w_abs, na.rm = TRUE) == 0) {
+      normalized_weights[[pathway]] <- setNames(rep(NA_real_, length(w_abs)), names(w_abs))
+    } else {
+      w_norm <- w_abs / max(w_abs, na.rm = TRUE)
+      normalized_weights[[pathway]] <- w_norm
+    }
+  }
+
+  for (nsp in nsp_list) {
+    sub_ppi_nsp <- ppi_df[ppi_df$V1 == nsp, , drop = FALSE]
+
+    for (pathway in pathways) {
+      genes_in_pathway <- pathway_gene_list[[pathway]]
+      if (is.null(genes_in_pathway) || length(genes_in_pathway) == 0) {
+        result_mat[nsp, pathway] <- NA
+        next
+      }
+
+      matched <- sub_ppi_nsp[sub_ppi_nsp$V2 %in% genes_in_pathway, ]
+      if (nrow(matched) == 0) {
+        result_mat[nsp, pathway] <- NA
+        next
+      }
+
+      p_vec <- matched$V3
+      gene_vec <- matched$V2
+
+      p_vec_adj <- pmax(p_vec, eps)
+
+      w_norm_all <- normalized_weights[[pathway]]
+      w_i_raw <- w_norm_all[gene_vec]
+
+      keep_idx <- which(!is.na(w_i_raw) & !is.na(p_vec_adj) & w_i_raw > 0)
+      if (length(keep_idx) == 0) {
+        result_mat[nsp, pathway] <- NA
+        next
+      }
+
+      p_i <- p_vec_adj[keep_idx]
+      w_i <- w_i_raw[keep_idx]
+
+      sum_w <- sum(w_i)
+      if (sum_w == 0) {
+        result_mat[nsp, pathway] <- NA
+        next
+      }
+
+      log_terms <- w_i * log(p_i)
+      avg_log <- sum(log_terms) / sum_w
+      score <- exp(avg_log)
+
+      score <- min(max(score, 0), 1)
+      result_mat[nsp, pathway] <- score
+    }
+  }
+
+  return(as.data.frame(result_mat))
+}
+```
+
+##2.2. 
+```{r}
+DF_progeny <- getModel(organism = "Human", top = 1000)
+pathway_gene_list <- list()
+pathway_weight_list <- list()
+for (pathway in colnames(DF_progeny)) {
+  weights <- DF_progeny[[pathway]]
+  genes <- rownames(DF_progeny)
+  non_zero_index <- which(weights != 0)
+  selected_genes <- genes[non_zero_index]
+  selected_weights <- weights[non_zero_index]
+  names(selected_weights) <- selected_genes
+  pathway_gene_list[[pathway]] <- selected_genes
+  pathway_weight_list[[pathway]] <- selected_weights
+}
+```
+
+##2.3. 
+```{r}
+Predict <- read.table("../data/04_Predict.tsv")%>%as.data.table()
+result_df_wight_geometry <-
+  compute_ppi_pathway_scores_geom(
+    ppi_df = Predict,
+    pathway_gene_list = pathway_gene_list,
+    pathway_weight_list = pathway_weight_list
+  )
+```
+
+##2.4.
+```{r,fig.width=8,fig.height=8}
+edge_df <- result_df_wight_geometry %>%
+  rownames_to_column("NSP") %>%
+  pivot_longer(-NSP, names_to = "Pathway", values_to = "Score") %>%
+  filter(!is.na(Score))
+edge_df$Score <- edge_df$Score*10
+edge_df$NSP <- gsub("nsp","Nsp",edge_df$NSP)
+edge_df$NSP     <- as.character(edge_df$NSP)
+edge_df$Pathway <- as.character(edge_df$Pathway)
+edge_df$NSP <- gsub("_Protein","",edge_df$NSP)
+#
+edge_df <- subset(edge_df,Pathway=="NFkB")
+```
+
+##2.5. 
+```{r}
+#
+nsp_group  <- paste0("Nsp", 1:16)
+orf_group  <- c("ORF3a", "ORF6", "ORF7a", "ORF7b", "ORF8", "ORF10")
+semn_group <- c("S", "E", "M", "N")
+
+#
+nsp_palette  <- colorRampPalette(c("white", "#B2182B"))
+orf_palette  <- colorRampPalette(c("white", "#2166AC"))
+semn_palette <- colorRampPalette(c("white", "#1A9850"))
+
+#
+score_map <- edge_df %>%
+  group_by(NSP) %>%
+  summarise(score = Score) %>%
+  deframe()
+
+#
+score_scaled <- round((score_map - min(score_map)) / (max(score_map) - min(score_map)) * 99) + 1
+  
+#
+nsp_colors <- sapply(names(score_scaled), function(p) {
+  if (p %in% nsp_group) {
+    nsp_palette(100)[score_scaled[p]]
+  } else if (p %in% orf_group) {
+    orf_palette(100)[score_scaled[p]]
+  } else if (p %in% semn_group) {
+    semn_palette(100)[score_scaled[p]]
+  } else {
+    "grey"
+  }
+})
+names(nsp_colors) <- names(score_scaled)
+```
+
+##2.6. 
+```{r,fig.width=10,fig.height=10}
+nfkb_df <- edge_df %>%
+  filter(Pathway == "NFkB") %>%
+  arrange(desc(Score))
+
+if (nrow(nfkb_df) == 0) {
+  stop("Cannot find Pathway == 'NFkB'")
+}
+
+#
+nsps_vec <- nfkb_df$NSP
+g_nfkb <- graph_from_data_frame(
+  d        = nfkb_df[, c("NSP", "Pathway", "Score")],
+  directed = FALSE
+)
+
+#
+E(g_nfkb)$color <- sapply(E(g_nfkb), function(e) {
+  ends_nodes <- ends(g_nfkb, e)
+  nsp_node   <- intersect(ends_nodes, nsps_vec)
+  nsp_colors[nsp_node]
+})
+E(g_nfkb)$width <- E(g_nfkb)$Score * 12
+
+#
+my_diamond <- function(coords, v = NULL, params) {
+  vertex.color <- params("vertex", "color")
+  vertex.frame <- params("vertex", "frame.color")
+  vertex.size  <- params("vertex", "size")
+
+  for (i in seq_len(nrow(coords))) {
+    x <- coords[i, 1]
+    y <- coords[i, 2]
+    r <- vertex.size[i] / 200
+    polygon(
+      x + r * c(0, 1, 0, -1),
+      y + r * c(1, 0, -1, 0),
+      col    = vertex.color[i],
+      border = vertex.frame[i],
+      lwd    = 1.5
+    )
+  }
+}
+add_shape("diamond", clip = shapes("circle")$clip, plot = my_diamond)
+
+#
+V(g_nfkb)$shape <- ifelse(V(g_nfkb)$name == "NFkB", "diamond", "circle")
+
+V(g_nfkb)$color <- ifelse(
+  V(g_nfkb)$name == "NFkB",
+  "white",
+  nsp_colors[V(g_nfkb)$name]
+)
+
+V(g_nfkb)$size        <- ifelse(V(g_nfkb)$name == "NFkB", 5, 24)
+V(g_nfkb)$label.color <- "black"
+V(g_nfkb)$label.cex   <- 0.8
+V(g_nfkb)$frame.color <- "black"
+
+#
+vs         <- V(g_nfkb)$name
+layout_mat <- matrix(NA, nrow = length(vs), ncol = 2, dimnames = list(vs, NULL))
+
+#
+layout_mat["NFkB", ] <- c(0, 0)
+
+#
+r      <- 15
+n      <- length(nsps_vec)
+angles <- seq(0, 2*pi, length.out = n + 1)[-1]
+for (i in seq_along(nsps_vec)) {
+  layout_mat[nsps_vec[i], ] <- c(cos(angles[i]), sin(angles[i])) * r
+}
+
+```
+
+##2.7. 
+```{r,fig.width=10,fig.height=10}
+plot(
+  g_nfkb,
+  layout   = layout_mat,
+  vertex.label.family = "sans",
+  vertex.label.font   = 2,
+  edge.curved         = 0.1,
+  axes                = FALSE,
+  xlab                = "", ylab = "",
+  main                = "NSP–NFkB Interaction"
+)
+```
+
+

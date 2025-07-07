@@ -1,0 +1,61 @@
+---
+title: "Figure1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#1. loading package and data
+##1.1. 
+```{r}
+library(DESeq2)
+library(data.table)
+library(magrittr)
+library(ggplot2)
+library(RColorBrewer)
+library(ggpubr)
+```
+##1.2. 
+```{r}
+#
+Count <- read.table("/mnt/raid61/Personal_data/yangqingxin/project/Covid19_wei_thesis_wang_NSP1/script/00_GitHub/data/01_RawCount.txt")
+#
+Metainfo <- data.frame(
+  Group = factor(gsub("_rep.*$","",colnames(Count)),c("WT_6","WT_24","WT_48","WT_72")),
+  Sample = colnames(Count),
+  row.names = colnames(Count)
+)
+#
+Metainfo$HPI <- gsub("WT_","",Metainfo$Group)%>%as.numeric()
+```
+
+#2. DEseq2
+##2.1. 
+```{r}
+#
+dds <- DESeqDataSetFromMatrix(countData = Count,colData = Metainfo,design= ~ Group)
+dds <- dds[rowSums(counts(dds)) > 10, ]
+rld <- rlog(dds, blind = FALSE)
+#
+dds_res <- DESeq(dds)
+saveRDS(dds_res,"../analysis/01_ddsres.Rds")
+```
+##2.2. 
+```{r,fig.width=5,fig.height=5}
+#
+pcaData <- plotPCA(rld, intgroup = c("Group"), returnData = TRUE,ntop=500)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+#
+ggplot(pcaData, aes(x = PC1, y = PC2)) +
+  geom_point(size =4, aes(color =Group)) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  scale_color_brewer(palette="Dark2")+theme_classic2()+
+  theme(legend.text = element_text(size=10),legend.title = element_text(size=10),
+        plot.title = element_text(hjust = .5,size = 15),legend.position = "top")+
+  geom_smooth(color="grey",se = F,alpha=.1,linetype=2)
+```
+
+

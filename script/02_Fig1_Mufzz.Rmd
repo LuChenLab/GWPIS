@@ -1,0 +1,230 @@
+---
+title: "Untitled"
+author: "yangqingxin"
+date: "2025/6/12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#1 loading package and data
+##1.1 
+```{r}
+library(DESeq2)
+library(Matrix)
+library(magrittr)
+library(data.table)
+library(dplyr)
+library(rtracklayer)
+library(ggplot2)
+library(RColorBrewer)
+library(ggpubr)
+library(Mfuzz)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(clusterProfiler)
+library(enrichplot)
+```
+##1.2. 
+```{r}
+dds_res <- readRDS("../analysis/01_ddsres.Rds")
+```
+
+#2. Mfuzz
+##2.1. 
+```{r}
+ExpressionData <- counts(dds_res,normalized=T)
+GeneInfo <- data.table(
+  ENSEMBL = rownames(ExpressionData),
+  SYMBOL  = rownames(ExpressionData)
+)
+GeneInfo$SYMBOL <- mapIds(org.Hs.eg.db,keys=GeneInfo$ENSEMBL,column="SYMBOL",keytype="ENSEMBL",multiVals="first")
+GeneInfo <- subset(GeneInfo,!is.na(GeneInfo$SYMBOL))
+#
+ExpressionData <- ExpressionData[GeneInfo$ENSEMBL,]
+rownames(ExpressionData) <- GeneInfo$SYMBOL
+ExpressionData%<>%as.data.frame()
+ExpressionData$Gene <- rownames(ExpressionData)
+ExpressionData%<>%melt()
+#
+ExpressionData$Group <- gsub("_re.*$","",ExpressionData$variable)
+ExpressionData%<>%as.data.table()
+```
+##2.2. 
+```{r}
+ExpressionData <- ExpressionData[,.(Expression=mean(value)),by=.(Gene,Group)]
+ExpressionData%<>%dcast(formula = Gene~Group)
+ExpressionData%<>%as.data.frame()
+rownames(ExpressionData) <- ExpressionData$Gene
+ExpressionData <- ExpressionData[,c("WT_6","WT_24","WT_48","WT_72")]
+#
+ExpressionData%<>%as.matrix()
+ExpressionData <- ExpressionData[which(rowSums(ExpressionData)>0),]
+```
+##2.3. 
+```{r}
+df <- new("ExpressionSet", exprs = ExpressionData)
+df <- standardise(df)
+m <- mestimate(df)
+set.seed(100)
+cl <- mfuzz(df, c = 8, m = m)
+```
+##2.4. 
+```{r,fig.width=14,fig.height=5}
+mfuzz.plot(eset = df,cl = cl,mfrow=c(2,4),new.window = FALSE,time.labels=c("6H","24H","48H","72H"))
+```
+##2.5. 
+```{r}
+saveRDS(cl,"../analysis/02_cl.Rds")
+saveRDS(df,"../analysis/02_df.Rds")
+```
+
+#3. 
+##3.1. 
+```{r,fig.width=18,fig.height=8}
+Make_mfuzz_data <- function(cl, df) {
+  cluster_DT <-
+    data.table(
+      Cluster = cl$cluster %>% as.character(),
+      Gene_name = cl$cluster %>% names %>% as.character()
+    )
+  setkey(cluster_DT, Gene_name)
+  plot_data <- df@assayData$exprs %>% as.data.frame()
+  plot_data$Gene_name <- rownames(plot_data)
+  plot_data %<>% as.data.table()
+  plot_data <- melt(plot_data, id.vars = c("Gene_name"))
+  setnames(
+    plot_data,
+    old = c("variable", "value"),
+    new = c("Time", "Expression")
+  )
+  plot_data$Cluster <- cluster_DT[plot_data$Gene_name]$Cluster
+  membership_DT <- cl$membership %>% as.data.frame()
+  cluster <- cl$cluster %>% as.numeric()
+  extract_mem <- function(x, y) {
+    z <- membership_DT[x, y] %>% as.numeric()
+    return(z)
+  }
+  membership <-  mapply(extract_mem, c(1:length(cluster)), cluster)
+  membership_DT <-
+    data.table(Gene_name = rownames(membership_DT),
+               Membership = membership)
+  setkey(membership_DT, Gene_name)
+  
+  plot_data$Membership <-
+    membership_DT[plot_data$Gene_name]$Membership
+  plot_data %<>% as.data.table()
+  return(plot_data)
+}
+```
+##3.2. 
+```{r}
+plot_data <- Make_mfuzz_data(cl=cl,df=df)
+plot_data$color <- rep("grey",nrow(plot_data))
+plot_data[Membership>=0.3]$color <- "red"
+```
+##3.3. 
+```{r,fig.width=18,fig.height=8}
+plot_data$Cluster <- factor(plot_data$Cluster,levels = c("1","2","3","4","5","6","7","8"))
+
+c(plot_data[Cluster==1]$color%>%table()%>%as.numeric)/4
+c(plot_data[Cluster==2]$color%>%table()%>%as.numeric)/4
+c(plot_data[Cluster==3]$color%>%table()%>%as.numeric)/4
+c(plot_data[Cluster==4]$color%>%table()%>%as.numeric)/4
+c(plot_data[Cluster==5]$color%>%table()%>%as.numeric)/4
+c(plot_data[Cluster==6]$color%>%table()%>%as.numeric)/4
+c(plot_data[Cluster==7]$color%>%table()%>%as.numeric)/4
+c(plot_data[Cluster==8]$color%>%table()%>%as.numeric)/4
+
+plot_data%<>%dplyr::mutate(Cluster_new=case_when(
+  Cluster=="1"~"Cluster4 (1162)",
+  Cluster=="2"~"Cluster1 (867)",
+  Cluster=="3"~"Cluster3 (825)",
+  Cluster=="4"~"Cluster6 (1219)",
+  Cluster=="5"~"Cluster5 (1173)",
+  Cluster=="6"~"Cluster2 (683)",
+  Cluster=="7"~"Cluster7 (1158)",
+  Cluster=="8"~"Cluster8 (1191)"
+))
+plot_data$Cluster_new <- factor(plot_data$Cluster_new,
+levels = c("Cluster1 (867)","Cluster2 (683)","Cluster3 (825)","Cluster4 (1162)",
+           "Cluster5 (1173)","Cluster6 (1219)","Cluster7 (1158)","Cluster8 (1191)"))
+#
+plot_data <- plot_data%>%unique()
+```
+##3.4. 
+```{r,fig.width=20,fig.height=8}
+setorder(plot_data, Membership)
+plot_data$Gene_name <-
+  factor(plot_data$Gene_name, plot_data$Gene_name %>% unique())
+ggplot(plot_data, aes(x = Time, y = Expression)) + geom_line(aes(group = Gene_name, color = Membership)) +
+  theme_classic2() +
+  xlab("") +
+  scale_x_discrete(expand = c(0.1, 0)) +
+  scale_color_distiller(palette = "RdBu") +
+  facet_wrap(. ~ Cluster_new, ncol = 4) +
+  theme(axis.text.x = element_text(angle = 45,vjust = .9,hjust = .9,size = 20),
+        strip.text = element_text(size = 25),
+        axis.text.y = element_text(size = 15),
+        axis.title.y = element_text(size = 25)
+        )
+```
+
+#4. Enrich
+##4.1.
+```{r}
+plot_data_subset <- subset(plot_data,Membership>0.3)
+Genelist <- lapply(plot_data_subset$Cluster_new%>%unique%>%as.character,function(x){
+  y <- plot_data_subset[Cluster_new==x]
+  y <- y$Gene_name%>%as.character()
+  return(y)
+})
+names(Genelist) <- plot_data_subset$Cluster_new%>%unique%>%as.character()
+Genelist <- Genelist[c("Cluster1 (867)","Cluster2 (683)","Cluster3 (825)","Cluster4 (1162)","Cluster5 (1173)","Cluster6 (1219)","Cluster7 (1158)","Cluster8 (1191)")%>%rev()]
+```
+##4.2.
+```{r}
+Go <- compareCluster(Genelist,fun="enrichGO", OrgDb='org.Hs.eg.db',keyType = "SYMBOL",ont= "BP")
+Go_simple <- simplify(Go)
+```
+##4.3. 
+```{r,fig.width=17,fig.height=5}
+enrichplot::dotplot(Go_simple,showCategory=5,includeAll=F)+coord_flip()+
+  theme(axis.text.x = element_text(angle = 45,hjust = .9,vjust = .9))+
+  scale_color_distiller(palette = "RdBu",direction = 1)+xlab("")
+```
+
+#5. Special pathway
+##5.1. 
+```{r}
+Go <- compareCluster(Genelist,fun="enrichGO", OrgDb='org.Hs.eg.db',keyType = "SYMBOL",ont= "BP",pvalueCutoff=1,qvalueCutoff = 1)
+```
+##5.2. 
+```{r,fig.width=5,fig.height=5}
+#
+GoData <- Go@compareClusterResult
+GoData <- subset(GoData,GoData$Description=="defense response to virus")
+setorder(GoData,p.adjust)
+GoData$Cluster%<>%as.character()
+GoData$Cluster <- factor(GoData$Cluster,levels = c(GoData$Cluster)%>%rev())
+#
+ggplot(GoData)+geom_bar(aes(y=Cluster,x=-log10(p.adjust)),stat = "identity",fill=c("red",rep("grey",7)))+ggtitle("defense response to virus")+
+  theme_bw()+theme(panel.grid = element_blank())+ylab("")+
+  geom_vline(xintercept = -log10(0.05),linetype=2)
+```
+##5.3. 
+```{r,fig.width=5,fig.height=5}
+#
+GoData <- Go@compareClusterResult
+GoData <- subset(GoData,GoData$Description=="positive regulation of canonical NF-kappaB signal transduction")
+setorder(GoData,p.adjust)
+GoData$Cluster%<>%as.character()
+GoData$Cluster <- factor(GoData$Cluster,levels = c(GoData$Cluster)%>%rev())
+#
+ggplot(GoData)+geom_bar(aes(y=Cluster,x=-log10(p.adjust)),stat = "identity",fill=c("red",rep("grey",7)))+ggtitle("positive regulation of canonical NF-kappaB signal transduction")+
+  theme_bw()+theme(panel.grid = element_blank())+ylab("")+
+  geom_vline(xintercept = -log10(0.05),linetype=2)
+```
+
