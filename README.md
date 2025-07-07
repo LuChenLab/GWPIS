@@ -1,6 +1,7 @@
 # GWPIS: Geometric Weighted Pathway Interaction Score
 
-GWPIS (Geometric Weighted Pathway Interaction Score) is a framework developed to explore the interaction between SARS-CoV-2 proteins and host immune pathways. The library integrates protein-language models and weighted pathway activity to quantify how SARS-CoV-2 proteins interact with host immune responses at the pathway level.
+GWPIS (Geometric Weighted Pathway Interaction Score) is a framework developed to explore the interaction between SARS-CoV-2 proteins and host immune pathways. The library integrates **D-SCRIPT** protein-language models (available at [https://d-script.readthedocs.io](https://d-script.readthedocs.io)) and weighted pathway activity to quantify how SARS-CoV-2 proteins interact with host immune responses at the pathway level.
+
 
 ## Repository Structure
 
