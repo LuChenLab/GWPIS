@@ -2,14 +2,11 @@
 
 GWPIS (Geometric Weighted Pathway Interaction Score) is a framework developed to explore the interaction between SARS-CoV-2 proteins and host immune pathways. The library integrates D-SCRIPT protein-language models (available at https://d-script.readthedocs.io) and weighted pathway activity scores from PROGENy (available at https://saezlab.github.io/progeny/) to quantify how SARS-CoV-2 proteins interact with host immune responses at the pathway level.
 
-## 📦 Required R Version and Packages
+## 📦 Required Packages and Version
 
-### R Version:
-- **R version**: 4.0.2 (2020-06-22)
+This project requires both **R (4.0.2)** and **Python (3.7.12)** environments.
 
-### Required R Packages:
-The following packages are required to run the analysis:
-
+**R packages required**:  
 - **dplyr** (1.1.3)
 - **ggplot2** (3.4.4)
 - **reshape2** (1.4.4)
@@ -29,6 +26,19 @@ You can install the necessary packages with the following commands in R:
 ```r
 install.packages(c("dplyr", "ggplot2", "reshape2", "tidyr", "igraph", "Matrix", "e1071"))
 BiocManager::install(c("DESeq2", "Mfuzz", "clusterProfiler", "PROGENy", "GenomicRanges", "SummarizedExperiment"))
+```
+
+**Python packages required**:  
+dscript==0.2.8
+
+You can install the necessary packages with the following commands in System:
+
+```linux
+$ git clone https://github.com/samsledje/D-SCRIPT.git
+$ cd D-SCRIPT
+$ conda env create --file environment.yml # Edit this file to change CUDA version if necessary
+$ conda activate dscript
+$ pip install dscript
 ```
 
 ## 📂 Repository Structure
