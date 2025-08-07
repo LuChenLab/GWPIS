@@ -34,11 +34,11 @@ BiocManager::install(c("DESeq2", "Mfuzz", "clusterProfiler", "PROGENy", "Genomic
 You can install the necessary packages with the following commands in System:
 
 ```linux
-$ git clone https://github.com/samsledje/D-SCRIPT.git
-$ cd D-SCRIPT
-$ conda env create --file environment.yml # Edit this file to change CUDA version if necessary
-$ conda activate dscript
-$ pip install dscript
+git clone https://github.com/samsledje/D-SCRIPT.git
+cd D-SCRIPT
+conda env create --file environment.yml
+conda activate dscript
+pip install dscript
 ```
 
 ## 📂 Repository Structure
