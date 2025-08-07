@@ -29,7 +29,7 @@ BiocManager::install(c("DESeq2", "Mfuzz", "clusterProfiler", "PROGENy", "Genomic
 ```
 
 **Python packages required**:  
-dscript==0.2.8
+- **dscript** （0.2.8）
 
 You can install the necessary packages with the following commands in System:
 
